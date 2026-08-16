@@ -1,0 +1,443 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------
+// AUTH & USERS
+// -----------------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified Boolean
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Better Auth specific fields
+  sessions      Session[]
+  accounts      Account[]
+
+  restaurantUsers RestaurantUser[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
+
+model Verification {
+  id         String    @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime? @default(now())
+  updatedAt  DateTime? @updatedAt
+}
+
+// -----------------
+// TENANTS
+// -----------------
+
+model Restaurant {
+  id          String   @id @default(cuid())
+  name        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  outlets     Outlet[]
+  users       RestaurantUser[]
+  customers   Customer[]
+}
+
+model Outlet {
+  id           String   @id @default(cuid())
+  restaurantId String
+  name         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  
+  tables       RestaurantTable[]
+  categories   MenuCategory[]
+  inventory    InventoryItem[]
+  orders       Order[]
+  kots         KOT[]
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique // ADMIN, MANAGER, CASHIER, KITCHEN
+  permissions String[]
+  
+  users       RestaurantUser[]
+}
+
+model RestaurantUser {
+  id           String   @id @default(cuid())
+  userId       String
+  restaurantId String
+  roleId       String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User       @relation(fields: [userId], references: [id])
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  role         Role       @relation(fields: [roleId], references: [id])
+  
+  @@unique([userId, restaurantId])
+}
+
+// -----------------
+// TABLES
+// -----------------
+
+enum TableStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+  CLEANING
+}
+
+model RestaurantTable {
+  id          String      @id @default(cuid())
+  outletId    String
+  name        String      // e.g. "T1"
+  status      TableStatus @default(AVAILABLE)
+  capacity    Int         @default(4)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  outlet      Outlet      @relation(fields: [outletId], references: [id])
+  sessions    TableSession[]
+  orders      Order[]
+}
+
+model TableSession {
+  id          String   @id @default(cuid())
+  tableId     String
+  startedAt   DateTime @default(now())
+  endedAt     DateTime?
+  
+  table       RestaurantTable @relation(fields: [tableId], references: [id])
+  orders      Order[]
+}
+
+// -----------------
+// MENU
+// -----------------
+
+model MenuCategory {
+  id           String   @id @default(cuid())
+  outletId     String
+  name         String
+  description  String?
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  outlet       Outlet   @relation(fields: [outletId], references: [id])
+  items        MenuItem[]
+}
+
+model MenuItem {
+  id              String   @id @default(cuid())
+  categoryId      String
+  name            String
+  description     String?
+  price           Float
+  imageUrl        String?
+  isVeg           Boolean  @default(true)
+  isAvailable     Boolean  @default(true)
+  taxRate         Float    @default(0)
+  sku             String?
+  preparationTime Int?     // in minutes
+  spicyLevel      Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  category        MenuCategory    @relation(fields: [categoryId], references: [id])
+  addons          MenuItemAddon[]
+  orderItems      OrderItem[]
+  kotItems        KOTItem[]
+  
+  @@index([categoryId, isAvailable])
+}
+
+model Addon {
+  id          String   @id @default(cuid())
+  name        String
+  price       Float
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  menuItems   MenuItemAddon[]
+  orderItemAddons OrderItemAddon[]
+}
+
+model MenuItemAddon {
+  menuItemId String
+  addonId    String
+  
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+  addon      Addon    @relation(fields: [addonId], references: [id])
+  
+  @@id([menuItemId, addonId])
+}
+
+// -----------------
+// ORDERS & KOT
+// -----------------
+
+enum OrderStatus {
+  DRAFT
+  OPEN
+  KOT_SENT
+  PREPARING
+  READY
+  BILL_REQUESTED
+  BILLED
+  PARTIALLY_PAID
+  PAID
+  COMPLETED
+  CANCELLED
+}
+
+model Order {
+  id             String      @id @default(cuid())
+  outletId       String
+  tableId        String?
+  tableSessionId String?
+  customerId     String?
+  status         OrderStatus @default(DRAFT)
+  subtotal       Float       @default(0)
+  discount       Float       @default(0)
+  tax            Float       @default(0)
+  serviceCharge  Float       @default(0)
+  grandTotal     Float       @default(0)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  
+  outlet         Outlet           @relation(fields: [outletId], references: [id])
+  table          RestaurantTable? @relation(fields: [tableId], references: [id])
+  session        TableSession?    @relation(fields: [tableSessionId], references: [id])
+  customer       Customer?        @relation(fields: [customerId], references: [id])
+  
+  items          OrderItem[]
+  kots           KOT[]
+  bill           Bill?
+  payments       Payment[]
+
+  @@index([outletId, createdAt])
+  @@index([status])
+  @@index([tableId, status])
+}
+
+model OrderItem {
+  id          String   @id @default(cuid())
+  orderId     String
+  menuItemId  String
+  quantity    Int
+  unitPrice   Float    // Historical price
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  order       Order    @relation(fields: [orderId], references: [id])
+  menuItem    MenuItem @relation(fields: [menuItemId], references: [id])
+  addons      OrderItemAddon[]
+}
+
+model OrderItemAddon {
+  id          String   @id @default(cuid())
+  orderItemId String
+  addonId     String
+  unitPrice   Float    // Historical price
+  
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id])
+  addon       Addon     @relation(fields: [addonId], references: [id])
+}
+
+enum KOTStatus {
+  PENDING
+  ACCEPTED
+  PREPARING
+  READY
+  COMPLETED
+  CANCELLED
+}
+
+model KOT {
+  id        String    @id @default(cuid())
+  outletId  String
+  orderId   String
+  status    KOTStatus @default(PENDING)
+  notes     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  outlet    Outlet    @relation(fields: [outletId], references: [id])
+  order     Order     @relation(fields: [orderId], references: [id])
+  items     KOTItem[]
+  
+  @@index([outletId, status])
+  @@index([createdAt])
+}
+
+model KOTItem {
+  id          String   @id @default(cuid())
+  kotId       String
+  menuItemId  String
+  quantity    Int
+  status      KOTStatus @default(PENDING)
+  
+  kot         KOT      @relation(fields: [kotId], references: [id])
+  menuItem    MenuItem @relation(fields: [menuItemId], references: [id])
+}
+
+// -----------------
+// BILLING & PAYMENT
+// -----------------
+
+model Bill {
+  id            String   @id @default(cuid())
+  orderId       String   @unique
+  subtotal      Float
+  discount      Float
+  tax           Float
+  serviceCharge Float
+  grandTotal    Float
+  createdAt     DateTime @default(now())
+  
+  order         Order    @relation(fields: [orderId], references: [id])
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  UPI
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  PARTIALLY_PAID
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model Payment {
+  id        String        @id @default(cuid())
+  orderId   String
+  amount    Float
+  method    PaymentMethod
+  status    PaymentStatus @default(PENDING)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  order     Order         @relation(fields: [orderId], references: [id])
+  
+  @@index([orderId, status])
+  @@index([createdAt])
+}
+
+// -----------------
+// INVENTORY
+// -----------------
+
+model InventoryItem {
+  id           String   @id @default(cuid())
+  outletId     String
+  name         String
+  sku          String?
+  unit         String   // KG, GRAM, LITRE, ML, PIECE, PACK
+  currentStock Float    @default(0)
+  minimumStock Float    @default(0)
+  costPerUnit  Float    @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  outlet       Outlet   @relation(fields: [outletId], references: [id])
+  transactions InventoryTransaction[]
+  
+  @@index([outletId, isActive])
+}
+
+enum TransactionType {
+  PURCHASE
+  ADJUSTMENT
+  WASTE
+  SALE
+  RETURN
+}
+
+model InventoryTransaction {
+  id              String          @id @default(cuid())
+  inventoryItemId String
+  type            TransactionType
+  quantity        Float           // Can be positive or negative
+  notes           String?
+  createdAt       DateTime        @default(now())
+
+  inventoryItem   InventoryItem   @relation(fields: [inventoryItemId], references: [id])
+}
+
+// -----------------
+// CUSTOMER & AUDIT
+// -----------------
+
+model Customer {
+  id           String   @id @default(cuid())
+  restaurantId String
+  name         String
+  phone        String?
+  email        String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  orders       Order[]
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  details   String?
+  createdAt DateTime @default(now())
+}
