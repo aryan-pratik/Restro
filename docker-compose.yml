@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: restro-db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: restro
+    ports:
+      - "5433:5432"
+    volumes:
+      - restro_db_data:/var/lib/postgresql/data
+
+volumes:
+  restro_db_data:
