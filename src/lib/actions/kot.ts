@@ -64,7 +64,8 @@ export async function updateKOTStatus(kotId: string, status: KOTStatus) {
   // Update KOT status
   const updatedKOT = await prisma.kOT.update({
     where: { id: kotId },
-    data: { status },
+    // Stamp acceptedAt the first time the kitchen accepts the KOT; drives the prep countdown
+    data: { status, acceptedAt: status === KOTStatus.ACCEPTED && !kot.acceptedAt ? new Date() : undefined },
   });
 
   // Cascade status to all items within KOT (simplified MVP logic)
@@ -92,6 +93,7 @@ export async function updateKOTStatus(kotId: string, status: KOTStatus) {
   revalidatePath("/kitchen");
   revalidatePath("/pos/table");
   revalidatePath("/pos");
-  
+  revalidatePath("/tables");
+
   return updatedKOT;
 }

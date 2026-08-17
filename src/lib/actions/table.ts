@@ -1,6 +1,6 @@
 "use server";
 
-import { PrismaClient, TableStatus } from "@prisma/client";
+import { PrismaClient, TableStatus, KOTStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { TableSchema, UpdateTableStatusSchema } from "../validations/table";
@@ -31,6 +31,16 @@ export async function getTables() {
         },
         include: {
           items: true,
+          kots: {
+            where: {
+              status: { notIn: ["COMPLETED", "CANCELLED"] },
+              acceptedAt: { not: null },
+            },
+            include: {
+              items: { include: { menuItem: true } },
+            },
+            orderBy: { acceptedAt: "asc" },
+          },
         },
       },
     },
@@ -41,14 +51,64 @@ export async function getTables() {
     const activeOrder = t.orders[0];
     const runningTotal = activeOrder ? activeOrder.grandTotal : 0;
     const activeSession = t.sessions[0] || null;
+    const prepTimer = activeOrder ? getKitchenProgress(activeOrder.kots) : null;
 
     return {
       ...t,
       activeSession,
       activeOrder,
       runningTotal,
+      prepTimer,
     };
   });
+}
+
+const DEFAULT_PREP_MINUTES = 15;
+
+interface KOTWithPrepItems {
+  status: KOTStatus;
+  acceptedAt: Date | null;
+  items: { menuItem: { preparationTime: number | null } }[];
+}
+
+export interface KitchenProgress {
+  // READY takes priority over ACCEPTED/PREPARING so the table reflects the real
+  // kitchen state instead of an estimate that's now stale.
+  status: "ACCEPTED" | "PREPARING" | "READY";
+  estimatedReadyAt: Date | null;
+}
+
+// Summarizes a table's in-flight KOTs into one status the table card can show:
+// - if any KOT is READY, surface that immediately (countdown is irrelevant once food is ready)
+// - otherwise, show the soonest-due estimate among KOTs still being prepped
+function getKitchenProgress(kots: KOTWithPrepItems[]): KitchenProgress | null {
+  if (kots.length === 0) return null;
+
+  const readyKot = kots.find((k) => k.status === KOTStatus.READY);
+  if (readyKot) {
+    return { status: "READY", estimatedReadyAt: null };
+  }
+
+  let earliest: Date | null = null;
+  let anyPreparing = false;
+
+  for (const kot of kots) {
+    if (!kot.acceptedAt) continue;
+    if (kot.status === KOTStatus.PREPARING) anyPreparing = true;
+
+    const prepMinutes = Math.max(
+      DEFAULT_PREP_MINUTES,
+      ...kot.items.map((item) => item.menuItem.preparationTime ?? 0)
+    );
+    const estimatedReadyAt = new Date(kot.acceptedAt.getTime() + prepMinutes * 60_000);
+    if (!earliest || estimatedReadyAt < earliest) {
+      earliest = estimatedReadyAt;
+    }
+  }
+
+  if (!earliest) return null;
+
+  return { status: anyPreparing ? "PREPARING" : "ACCEPTED", estimatedReadyAt: earliest };
 }
 
 export async function getTableById(id: string) {

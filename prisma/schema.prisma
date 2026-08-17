@@ -301,13 +301,14 @@ enum KOTStatus {
 }
 
 model KOT {
-  id        String    @id @default(cuid())
-  outletId  String
-  orderId   String
-  status    KOTStatus @default(PENDING)
-  notes     String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id         String    @id @default(cuid())
+  outletId   String
+  orderId    String
+  status     KOTStatus @default(PENDING)
+  notes      String?
+  acceptedAt DateTime? // Set when kitchen accepts the KOT; drives the prep countdown
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   outlet    Outlet    @relation(fields: [outletId], references: [id])
   order     Order     @relation(fields: [orderId], references: [id])

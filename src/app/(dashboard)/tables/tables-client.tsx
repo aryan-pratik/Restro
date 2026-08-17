@@ -3,8 +3,7 @@
 import { useState } from "react";
 import { TableStatus } from "@prisma/client";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -15,8 +14,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { saveTable, updateTableStatus, openTableSession, closeTableSession, deleteTable } from "@/lib/actions/table";
-import { Plus, MoreVertical, Users, Trash2, Edit3, Play, Square, Sparkles, Bookmark } from "lucide-react";
+import { Plus, MoreVertical, Trash2, Edit3 } from "lucide-react";
 import Link from "next/link";
+import { PrepTimer, type KitchenProgress } from "./prep-timer";
 
 interface TableWithDetails {
   id: string;
@@ -26,7 +26,30 @@ interface TableWithDetails {
   runningTotal: number;
   activeSession: any;
   activeOrder: any;
+  prepTimer: KitchenProgress | null;
 }
+
+const STATUS_TEXT_CLASS: Record<TableStatus, string> = {
+  [TableStatus.AVAILABLE]: "text-green-700",
+  [TableStatus.OCCUPIED]: "text-amber-700",
+  [TableStatus.RESERVED]: "text-blue-700",
+  [TableStatus.CLEANING]: "text-purple-700",
+};
+
+// Solid (non-gradient) fill per status, used for the table cards and the legend swatches
+const STATUS_CARD_CLASS: Record<TableStatus, string> = {
+  [TableStatus.AVAILABLE]: "bg-green-100 border-green-300",
+  [TableStatus.OCCUPIED]: "bg-amber-100 border-amber-300",
+  [TableStatus.RESERVED]: "bg-blue-100 border-blue-300",
+  [TableStatus.CLEANING]: "bg-purple-100 border-purple-300",
+};
+
+const STATUS_LEGEND: { status: TableStatus; label: string }[] = [
+  { status: TableStatus.AVAILABLE, label: "Available" },
+  { status: TableStatus.OCCUPIED, label: "Occupied" },
+  { status: TableStatus.RESERVED, label: "Reserved" },
+  { status: TableStatus.CLEANING, label: "Cleaning" },
+];
 
 export function TablesClient({ initialData }: { initialData: TableWithDetails[] }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -110,110 +133,84 @@ export function TablesClient({ initialData }: { initialData: TableWithDetails[] 
     return t.status === filterStatus;
   });
 
-  const getStatusBadgeClass = (s: TableStatus) => {
-    switch (s) {
-      case TableStatus.AVAILABLE:
-        return "bg-green-100 text-green-800 border-green-300";
-      case TableStatus.OCCUPIED:
-        return "bg-amber-100 text-amber-800 border-amber-300";
-      case TableStatus.RESERVED:
-        return "bg-blue-100 text-blue-800 border-blue-300";
-      case TableStatus.CLEANING:
-        return "bg-purple-100 text-purple-800 border-purple-300";
-      default:
-        return "bg-gray-100 text-gray-800";
-    }
-  };
-
-  const getCardBorderClass = (s: TableStatus) => {
-    switch (s) {
-      case TableStatus.AVAILABLE:
-        return "border-green-200 hover:border-green-400 bg-white";
-      case TableStatus.OCCUPIED:
-        return "border-amber-300 bg-amber-50/30 hover:border-amber-400";
-      case TableStatus.RESERVED:
-        return "border-blue-200 bg-blue-50/20 hover:border-blue-300";
-      case TableStatus.CLEANING:
-        return "border-purple-200 bg-purple-50/20 hover:border-purple-300";
-      default:
-        return "border-gray-200";
-    }
-  };
-
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4">
+      <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Table Management</h1>
-          <p className="text-muted-foreground text-sm">Monitor table status, active sessions, and seating capacity.</p>
+          <h1 className="text-lg font-semibold text-slate-900">Table Management</h1>
+          <p className="text-sm text-slate-500">Monitor table status, active sessions, and seating capacity.</p>
         </div>
-        <Button onClick={() => openForm()}>
-          <Plus className="w-4 h-4 mr-2" /> Add Table
-        </Button>
+        <div className="flex flex-col items-end gap-2">
+          <Button size="sm" onClick={() => openForm()}>
+            <Plus className="w-4 h-4 mr-1.5" /> Add Table
+          </Button>
+          {/* Color legend */}
+          <div className="flex items-center gap-3 text-xs text-slate-500">
+            {STATUS_LEGEND.map(({ status: s, label }) => (
+              <span key={s} className="flex items-center gap-1.5">
+                <span className={`inline-block w-2.5 h-2.5 rounded-full border ${STATUS_CARD_CLASS[s]}`} />
+                {label}
+              </span>
+            ))}
+          </div>
+        </div>
       </div>
 
-      {/* KPI Counters */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <Card className="cursor-pointer" onClick={() => setFilterStatus("ALL")}>
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Total Tables</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-2xl font-bold">{totalTables}</div>
-          </CardContent>
-        </Card>
-        <Card className={`cursor-pointer ${filterStatus === TableStatus.AVAILABLE ? 'ring-2 ring-green-500' : ''}`} onClick={() => setFilterStatus(TableStatus.AVAILABLE)}>
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-xs font-medium text-green-600">Available</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-2xl font-bold text-green-700">{availableCount}</div>
-          </CardContent>
-        </Card>
-        <Card className={`cursor-pointer ${filterStatus === TableStatus.OCCUPIED ? 'ring-2 ring-amber-500' : ''}`} onClick={() => setFilterStatus(TableStatus.OCCUPIED)}>
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-xs font-medium text-amber-600">Occupied</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-2xl font-bold text-amber-700">{occupiedCount}</div>
-          </CardContent>
-        </Card>
-        <Card className={`cursor-pointer ${filterStatus === TableStatus.RESERVED ? 'ring-2 ring-blue-500' : ''}`} onClick={() => setFilterStatus(TableStatus.RESERVED)}>
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-xs font-medium text-blue-600">Reserved</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-2xl font-bold text-blue-700">{reservedCount}</div>
-          </CardContent>
-        </Card>
-        <Card className={`cursor-pointer ${filterStatus === TableStatus.CLEANING ? 'ring-2 ring-purple-500' : ''}`} onClick={() => setFilterStatus(TableStatus.CLEANING)}>
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-xs font-medium text-purple-600">Cleaning</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-2xl font-bold text-purple-700">{cleaningCount}</div>
-          </CardContent>
-        </Card>
+      {/* Status filter counters */}
+      <div className="flex flex-wrap gap-px border border-slate-200 rounded-sm overflow-hidden text-sm w-fit">
+        <button
+          type="button"
+          onClick={() => setFilterStatus("ALL")}
+          className={`px-3 py-2 border-r border-slate-200 last:border-r-0 ${filterStatus === "ALL" ? "bg-slate-900 text-white" : "bg-white hover:bg-slate-50"}`}
+        >
+          All <span className="font-semibold">{totalTables}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilterStatus(TableStatus.AVAILABLE)}
+          className={`px-3 py-2 border-r border-slate-200 last:border-r-0 ${filterStatus === TableStatus.AVAILABLE ? "bg-slate-900 text-white" : "bg-white hover:bg-slate-50"}`}
+        >
+          Available <span className="font-semibold">{availableCount}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilterStatus(TableStatus.OCCUPIED)}
+          className={`px-3 py-2 border-r border-slate-200 last:border-r-0 ${filterStatus === TableStatus.OCCUPIED ? "bg-slate-900 text-white" : "bg-white hover:bg-slate-50"}`}
+        >
+          Occupied <span className="font-semibold">{occupiedCount}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilterStatus(TableStatus.RESERVED)}
+          className={`px-3 py-2 border-r border-slate-200 last:border-r-0 ${filterStatus === TableStatus.RESERVED ? "bg-slate-900 text-white" : "bg-white hover:bg-slate-50"}`}
+        >
+          Reserved <span className="font-semibold">{reservedCount}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilterStatus(TableStatus.CLEANING)}
+          className={`px-3 py-2 ${filterStatus === TableStatus.CLEANING ? "bg-slate-900 text-white" : "bg-white hover:bg-slate-50"}`}
+        >
+          Cleaning <span className="font-semibold">{cleaningCount}</span>
+        </button>
       </div>
 
-      {/* Visual Table Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      {/* Table grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
         {filteredTables.length === 0 ? (
-          <div className="col-span-full text-center py-12 border rounded-lg bg-gray-50 text-muted-foreground">
+          <div className="col-span-full text-center py-12 border border-slate-200 rounded-sm text-slate-500 text-sm">
             No tables match the selected filter.
           </div>
         ) : (
           filteredTables.map((t) => (
-            <Card key={t.id} className={`transition-all border-2 shadow-sm ${getCardBorderClass(t.status)}`}>
-              <CardHeader className="p-4 flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-lg font-bold flex items-center gap-2">
-                  {t.name}
-                  <span className="text-xs font-normal text-muted-foreground flex items-center">
-                    <Users className="w-3 h-3 mr-1 inline" /> {t.capacity}
-                  </span>
-                </CardTitle>
+            <div key={t.id} className={`border rounded-sm p-3 flex flex-col gap-2 ${STATUS_CARD_CLASS[t.status]}`}>
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="font-semibold text-slate-900">{t.name}</div>
+                  <div className="text-xs text-slate-600">{t.capacity} seats</div>
+                </div>
                 <DropdownMenu>
-                  <DropdownMenuTrigger className="h-8 w-8 inline-flex items-center justify-center rounded-md hover:bg-slate-100 p-0 text-slate-700">
+                  <DropdownMenuTrigger className="h-7 w-7 inline-flex items-center justify-center rounded hover:bg-black/10 text-slate-600">
                     <MoreVertical className="w-4 h-4" />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
@@ -221,28 +218,18 @@ export function TablesClient({ initialData }: { initialData: TableWithDetails[] 
                       <Edit3 className="w-4 h-4 mr-2" /> Edit Table
                     </DropdownMenuItem>
                     {t.status === TableStatus.AVAILABLE && (
-                      <>
-                        <DropdownMenuItem onClick={() => handleOpenSession(t.id)}>
-                          <Play className="w-4 h-4 mr-2 text-green-600" /> Start Session (Occupy)
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleStatusChange(t.id, TableStatus.RESERVED)}>
-                          <Bookmark className="w-4 h-4 mr-2 text-blue-600" /> Mark Reserved
-                        </DropdownMenuItem>
-                      </>
+                      <DropdownMenuItem onClick={() => handleStatusChange(t.id, TableStatus.RESERVED)}>
+                        Mark Reserved
+                      </DropdownMenuItem>
                     )}
                     {t.status === TableStatus.OCCUPIED && (
                       <DropdownMenuItem onClick={() => handleCloseSession(t.id, TableStatus.CLEANING)}>
-                        <Square className="w-4 h-4 mr-2 text-purple-600" /> Close Session (Cleaning)
+                        Close Session (Cleaning)
                       </DropdownMenuItem>
                     )}
-                    {t.status === TableStatus.CLEANING && (
+                    {(t.status === TableStatus.CLEANING || t.status === TableStatus.RESERVED) && (
                       <DropdownMenuItem onClick={() => handleStatusChange(t.id, TableStatus.AVAILABLE)}>
-                        <Sparkles className="w-4 h-4 mr-2 text-green-600" /> Mark Available
-                      </DropdownMenuItem>
-                    )}
-                    {t.status === TableStatus.RESERVED && (
-                      <DropdownMenuItem onClick={() => handleStatusChange(t.id, TableStatus.AVAILABLE)}>
-                        <Sparkles className="w-4 h-4 mr-2 text-green-600" /> Mark Available
+                        Mark Available
                       </DropdownMenuItem>
                     )}
                     <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(t.id)}>
@@ -250,45 +237,44 @@ export function TablesClient({ initialData }: { initialData: TableWithDetails[] 
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-              </CardHeader>
-              <CardContent className="p-4 pt-2">
-                <div className="flex items-center justify-between mt-1">
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${getStatusBadgeClass(t.status)}`}>
-                    {t.status}
-                  </span>
-                  {t.status === TableStatus.OCCUPIED && (
-                    <span className="text-sm font-bold text-amber-700">
-                      ₹{t.runningTotal.toFixed(2)}
-                    </span>
-                  )}
-                </div>
+              </div>
 
-                <div className="mt-4 pt-3 border-t flex justify-end">
-                  {t.status === TableStatus.AVAILABLE && (
-                    <Button size="sm" variant="outline" className="w-full" onClick={() => handleOpenSession(t.id)}>
-                      Open Table
-                    </Button>
-                  )}
-                  {t.status === TableStatus.OCCUPIED && (
-                    <Link href={`/pos/table/${t.id}`} className="w-full">
-                      <Button size="sm" className="w-full bg-amber-600 hover:bg-amber-700 text-white">
-                        View Order
-                      </Button>
-                    </Link>
-                  )}
-                  {t.status === TableStatus.CLEANING && (
-                    <Button size="sm" variant="secondary" className="w-full" onClick={() => handleStatusChange(t.id, TableStatus.AVAILABLE)}>
-                      Make Available
-                    </Button>
-                  )}
-                  {t.status === TableStatus.RESERVED && (
-                    <Button size="sm" variant="outline" className="w-full" onClick={() => handleOpenSession(t.id)}>
-                      Seat Guests
-                    </Button>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+              <div className="flex items-center justify-between">
+                <span className={`text-xs font-semibold uppercase ${STATUS_TEXT_CLASS[t.status]}`}>
+                  {t.status}
+                </span>
+                {t.status === TableStatus.OCCUPIED && (
+                  <span className="text-sm font-semibold text-slate-900">₹{t.runningTotal.toFixed(2)}</span>
+                )}
+              </div>
+
+              {t.status === TableStatus.OCCUPIED && t.prepTimer && (
+                <PrepTimer progress={t.prepTimer} />
+              )}
+
+              <div className="mt-1 pt-2 border-t border-black/10">
+                {t.status === TableStatus.AVAILABLE && (
+                  <Button size="sm" variant="outline" className="w-full bg-white" onClick={() => handleOpenSession(t.id)}>
+                    Open Table
+                  </Button>
+                )}
+                {t.status === TableStatus.OCCUPIED && (
+                  <Link href={`/pos/table/${t.id}`} className="w-full block">
+                    <Button size="sm" className="w-full">View Order</Button>
+                  </Link>
+                )}
+                {t.status === TableStatus.CLEANING && (
+                  <Button size="sm" variant="outline" className="w-full bg-white" onClick={() => handleStatusChange(t.id, TableStatus.AVAILABLE)}>
+                    Make Available
+                  </Button>
+                )}
+                {t.status === TableStatus.RESERVED && (
+                  <Button size="sm" variant="outline" className="w-full bg-white" onClick={() => handleOpenSession(t.id)}>
+                    Seat Guests
+                  </Button>
+                )}
+              </div>
+            </div>
           ))
         )}
       </div>
