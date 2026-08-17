@@ -270,6 +270,7 @@ model OrderItem {
   orderId     String
   menuItemId  String
   quantity    Int
+  kotQuantity Int      @default(0) // Quantity already sent to kitchen via KOT
   unitPrice   Float    // Historical price
   notes       String?
   createdAt   DateTime @default(now())

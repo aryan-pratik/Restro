@@ -150,9 +150,17 @@ export async function addOrderItem(orderId: string, data: z.infer<typeof OrderIt
 export async function updateOrderItemQuantity(orderItemId: string, quantity: number) {
   const parsed = UpdateOrderItemSchema.parse({ quantity });
 
+  const existing = await prisma.orderItem.findUniqueOrThrow({
+    where: { id: orderItemId },
+  });
+
   const item = await prisma.orderItem.update({
     where: { id: orderItemId },
-    data: { quantity: parsed.quantity },
+    data: {
+      quantity: parsed.quantity,
+      // Never let kotQuantity exceed the new quantity (e.g. quantity reduced below what was already sent)
+      kotQuantity: Math.min(existing.kotQuantity, parsed.quantity),
+    },
   });
 
   await recalculateOrderTotal(item.orderId);
@@ -179,22 +187,39 @@ export async function sendKOT(orderId: string) {
   if (!order) throw new Error("Order not found");
   if (order.items.length === 0) throw new Error("Cannot send empty KOT");
 
+  // Only the quantity not yet sent to the kitchen goes into this KOT
+  const pendingItems = order.items
+    .map(item => ({ item, pendingQuantity: item.quantity - item.kotQuantity }))
+    .filter(({ pendingQuantity }) => pendingQuantity > 0);
+
+  if (pendingItems.length === 0) throw new Error("No new items to send to the kitchen");
+
   const outletId = await getOutletId();
 
-  // Create KOT
-  const kot = await prisma.kOT.create({
-    data: {
-      outletId,
-      orderId: order.id,
-      status: KOTStatus.PENDING,
-      items: {
-        create: order.items.map(item => ({
-          menuItemId: item.menuItemId,
-          quantity: item.quantity,
-          notes: item.notes,
-        }))
+  // Create KOT with only the newly added/increased items, and mark them as sent
+  const kot = await prisma.$transaction(async (tx) => {
+    const created = await tx.kOT.create({
+      data: {
+        outletId,
+        orderId: order.id,
+        status: KOTStatus.PENDING,
+        items: {
+          create: pendingItems.map(({ item, pendingQuantity }) => ({
+            menuItemId: item.menuItemId,
+            quantity: pendingQuantity,
+          }))
+        }
       }
+    });
+
+    for (const { item } of pendingItems) {
+      await tx.orderItem.update({
+        where: { id: item.id },
+        data: { kotQuantity: item.quantity },
+      });
     }
+
+    return created;
   });
 
   // Update order status
